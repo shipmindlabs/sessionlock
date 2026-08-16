@@ -1,0 +1,20 @@
+{
+  "name": "sessionlock",
+  "version": "0.0.0",
+  "description": "Lock a mobile app after inactivity using timestamps, not a timer that stops running when the app is backgrounded.",
+  "license": "MIT",
+  "type": "module",
+  "engines": { "node": ">=22.18" },
+  "exports": { ".": "./src/index.ts" },
+  "files": ["src", "README.md", "LICENSE"],
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "demo": "node example/demo.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.4",
+    "typescript": "^7.0.2"
+  },
+  "keywords": ["react-native", "security", "inactivity", "session", "lock", "appstate"]
+}
