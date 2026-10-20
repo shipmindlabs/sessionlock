@@ -1,7 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { attach, SessionLock, type AppStateLike, type Snapshot, type Timer } from "../src/index.ts";
+import {
+  attach,
+  SessionLock,
+  type AppStateLike,
+  type LockReason,
+  type LockState,
+  type Snapshot,
+  type Timer,
+} from "../src/index.ts";
 
 const MINUTE = 60_000;
 
@@ -151,6 +159,46 @@ test("a stored locked session stays locked", () => {
   const restored = lockWith(time).restore(snapshot);
   assert.equal(restored.state, "locked");
   assert.equal(restored.reason, "backgrounded");
+});
+
+// A snapshot whose date cannot be read once restored unlocked and stayed that
+// way: every comparison against NaN is false, so no amount of waiting locked
+// it and the countdown reported NaN.
+test("a stored session with an unreadable date restores locked", () => {
+  const time = clock();
+  const lock = lockWith(time);
+  const restored = lock.restore({ state: "unlocked", lastActivityAt: "garbage", reason: null });
+
+  assert.equal(restored.state, "locked");
+  assert.equal(restored.reason, "manual");
+
+  time.advance(60 * MINUTE);
+  assert.equal(lock.check().state, "locked");
+  assert.equal(lock.msUntilIdleLock, 0);
+});
+
+test("a stored session with an unknown state restores locked", () => {
+  const time = clock();
+  const restored = lockWith(time).restore({
+    state: "weird" as LockState,
+    lastActivityAt: time.now().toISOString(),
+    reason: null,
+  });
+
+  assert.equal(restored.state, "locked");
+  assert.equal(restored.reason, "manual");
+});
+
+test("an unknown reason is not passed through to the passcode screen", () => {
+  const time = clock();
+  const restored = lockWith(time).restore({
+    state: "locked",
+    lastActivityAt: time.now().toISOString(),
+    reason: "bogus" as LockReason,
+  });
+
+  assert.equal(restored.state, "locked");
+  assert.equal(restored.reason, "manual");
 });
 
 test("the countdown reports how long is left", () => {

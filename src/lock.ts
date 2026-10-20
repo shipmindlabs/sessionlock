@@ -22,7 +22,10 @@ export type LockState = "unlocked" | "locked";
 
 export type Snapshot = {
   readonly state: LockState;
-  /** When activity was last seen. Null once locked. */
+  /**
+   * When activity was last seen. Kept when the lock closes, and ignored when a
+   * locked snapshot is restored.
+   */
   readonly lastActivityAt: string | null;
   /** Why the lock closed, for the screen that asks for a passcode. */
   readonly reason: LockReason | null;
@@ -56,6 +59,27 @@ export type Options = {
 };
 
 export const DEFAULT_GRACE_MS = 1500;
+
+const REASONS: readonly LockReason[] = ["idle", "backgrounded", "manual"];
+
+/**
+ * A snapshot arrives from storage, where its type is a promise rather than a
+ * guarantee: an older version of the app wrote it, a write was cut short, a
+ * value was edited by hand. A snapshot that cannot be read is no reason to
+ * leave a session open.
+ */
+function readable(snapshot: Snapshot): boolean {
+  if (snapshot.state !== "locked" && snapshot.state !== "unlocked") return false;
+  if (snapshot.reason !== null && !REASONS.includes(snapshot.reason)) return false;
+  if (snapshot.lastActivityAt && !Number.isFinite(new Date(snapshot.lastActivityAt).getTime())) {
+    return false;
+  }
+  return true;
+}
+
+function storedReason(reason: LockReason | null): LockReason {
+  return reason !== null && REASONS.includes(reason) ? reason : "manual";
+}
 
 /** The lock's rule, as a value that can be stored and restored. */
 export class SessionLock {
@@ -167,9 +191,9 @@ export class SessionLock {
    * would mean force-quitting the app is a way around the lock.
    */
   restore(snapshot: Snapshot): Snapshot {
-    if (snapshot.state === "locked" || !snapshot.lastActivityAt) {
+    if (!readable(snapshot) || snapshot.state === "locked" || !snapshot.lastActivityAt) {
       this.#state = "locked";
-      this.#reason = snapshot.reason ?? "manual";
+      this.#reason = storedReason(snapshot.reason);
       return this.snapshot;
     }
     this.#lastActivityAt = new Date(snapshot.lastActivityAt).getTime();
