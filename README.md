@@ -34,7 +34,8 @@ app force-quit, reopened an hour later
 
 **The background timeout is not the idle timeout.** An app sitting in the app
 switcher is more exposed than one in its owner's hand, so `backgroundAfterMs` is
-usually shorter, and it is a separate setting.
+usually shorter, and it is a separate setting. `backgroundAfterMs: 0` locks as
+soon as the app is left.
 
 **Face ID backgrounds your app.** So does a permission dialog and a share sheet.
 Counting that as leaving locks the user out of their own unlock and traps them
@@ -60,6 +61,10 @@ const detach = attach(lock, {
 // after authenticating
 lock.unlock();
 ```
+
+The timeouts are checked when the lock is built: a duration that is not a
+non-negative number — `Number("5m")` is `NaN` — throws a `RangeError` naming the
+option, rather than producing a lock that never closes.
 
 `attach` also polls while the app is open, so the lock appears promptly for
 someone looking at the screen. That poll is an optimisation, not the mechanism —
@@ -101,4 +106,4 @@ npm run typecheck
 
 ## License
 
-MIT
+MIT © [Shipmind Labs](https://shipmindlabs.com)

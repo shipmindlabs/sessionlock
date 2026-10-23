@@ -45,7 +45,8 @@ export type Options = {
   /**
    * How long in the background before locking. Usually shorter than the idle
    * timeout: a banking app in the app switcher is more exposed than one in
-   * front of its owner. Defaults to the idle timeout.
+   * front of its owner. Defaults to the idle timeout. Zero locks on leaving,
+   * with the grace period still covering a trip through a system prompt.
    */
   readonly backgroundAfterMs?: number;
   /**
@@ -61,6 +62,18 @@ export type Options = {
 export const DEFAULT_GRACE_MS = 1500;
 
 const REASONS: readonly LockReason[] = ["idle", "backgrounded", "manual"];
+
+/**
+ * Durations arrive from application code, where one is easy to get wrong:
+ * Number("5m") is NaN, every comparison against NaN is false, and a lock
+ * configured that way never closes however long the app is left open.
+ */
+function duration(name: string, value: number): number {
+  if (typeof value !== "number" || Number.isNaN(value) || value < 0) {
+    throw new RangeError(`${name} must be a non-negative number of milliseconds, got ${String(value)}`);
+  }
+  return value;
+}
 
 /**
  * A snapshot arrives from storage, where its type is a promise rather than a
@@ -90,11 +103,22 @@ export class SessionLock {
   #options: Required<Options>;
 
   constructor(options: Options) {
+    const idleAfterMs = duration("idleAfterMs", options.idleAfterMs);
+    const graceMs = duration("graceMs", options.graceMs ?? DEFAULT_GRACE_MS);
+    // An endless grace period treats every absence as a system prompt, so the
+    // lock never closes on return however long the app was away.
+    if (!Number.isFinite(graceMs)) {
+      throw new RangeError(`graceMs must be a finite number of milliseconds, got ${String(graceMs)}`);
+    }
+
     this.#options = {
-      backgroundAfterMs: options.backgroundAfterMs ?? options.idleAfterMs,
-      graceMs: options.graceMs ?? DEFAULT_GRACE_MS,
+      backgroundAfterMs:
+        options.backgroundAfterMs === undefined
+          ? idleAfterMs
+          : duration("backgroundAfterMs", options.backgroundAfterMs),
+      graceMs,
       now: options.now ?? (() => new Date()),
-      idleAfterMs: options.idleAfterMs,
+      idleAfterMs,
     };
     this.#lastActivityAt = this.#options.now().getTime();
   }

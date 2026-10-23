@@ -93,6 +93,24 @@ test("the background timeout can be shorter than the idle one", () => {
   assert.equal(snapshot.reason, "backgrounded", "the app switcher is more exposed than the owner's hand");
 });
 
+// The usual setup for locking as soon as the app is left: the grace period is
+// still what tells a Face ID sheet apart from walking away.
+test("a zero background timeout locks on leaving, but not on a Face ID trip", () => {
+  const time = clock();
+  const leaving = lockWith(time, { idleAfterMs: 30 * MINUTE, backgroundAfterMs: 0 });
+
+  leaving.background();
+  time.advance(2000);
+  const snapshot = leaving.foreground();
+  assert.equal(snapshot.state, "locked");
+  assert.equal(snapshot.reason, "backgrounded");
+
+  const prompt = lockWith(time, { idleAfterMs: 30 * MINUTE, backgroundAfterMs: 0 });
+  prompt.background();
+  time.advance(1000);
+  assert.equal(prompt.foreground().state, "unlocked");
+});
+
 test("returning after a short absence still locks if the session went idle", () => {
   const time = clock();
   const lock = lockWith(time, { idleAfterMs: 5 * MINUTE, backgroundAfterMs: 30 * MINUTE });
@@ -104,6 +122,39 @@ test("returning after a short absence still locks if the session went idle", () 
 
   assert.equal(snapshot.state, "locked");
   assert.equal(snapshot.reason, "idle");
+});
+
+// Number("5m") is NaN, every comparison against NaN is false, and a lock
+// configured that way was still unlocked after ten hours.
+test("a timeout that is not a non-negative number is refused", () => {
+  const time = clock();
+
+  assert.throws(() => lockWith(time, { idleAfterMs: Number("5m") }), {
+    name: "RangeError",
+    message: /idleAfterMs/,
+  });
+  assert.throws(() => lockWith(time, { idleAfterMs: -1 }), {
+    name: "RangeError",
+    message: /idleAfterMs/,
+  });
+  assert.throws(() => lockWith(time, { backgroundAfterMs: Number.NaN }), {
+    name: "RangeError",
+    message: /backgroundAfterMs/,
+  });
+});
+
+// An endless grace period treats every absence as a system prompt.
+test("a grace period must be finite and non-negative", () => {
+  const time = clock();
+
+  assert.throws(() => lockWith(time, { graceMs: -1 }), {
+    name: "RangeError",
+    message: /graceMs/,
+  });
+  assert.throws(() => lockWith(time, { graceMs: Number.POSITIVE_INFINITY }), {
+    name: "RangeError",
+    message: /graceMs/,
+  });
 });
 
 // A tap on the passcode screen is not a reason to consider the session live.
