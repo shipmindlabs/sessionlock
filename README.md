@@ -70,6 +70,12 @@ option, rather than producing a lock that never closes.
 someone looking at the screen. That poll is an optimisation, not the mechanism —
 which is the distinction the whole library rests on.
 
+`lock.subscribe(listener)` reports every real change — a lock closing, or an
+unlock of a session that was closed, but not an `unlock()` on one already open —
+and returns a function that stops it. `attach` uses it so that unlocking
+restarts the poll straight away, instead of leaving the session unpolled until
+the app next changes state.
+
 ## No React Native import
 
 `AppState` arrives as an argument typed by its shape, and so does the clock and
@@ -93,7 +99,7 @@ switcher is a separate, platform-specific job.
 
 | | |
 |---|---|
-| Implemented | idle and background timeouts, grace period for system prompts, manual lock, restore across cold starts, countdown, lifecycle wiring with cleanup |
+| Implemented | idle and background timeouts, grace period for system prompts, manual lock, restore across cold starts, countdown, change subscription, lifecycle wiring with cleanup |
 | Not yet | a React hook wrapper, persistence helpers, a warning callback shortly before locking, per-screen sensitivity |
 
 ## Development

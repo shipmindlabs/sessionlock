@@ -46,7 +46,10 @@ export function attach(lock: SessionLock, options: AttachOptions): () => void {
   let handle: unknown = null;
 
   const schedule = () => {
-    if (handle !== null) timer.clear(handle);
+    if (handle !== null) {
+      timer.clear(handle);
+      handle = null;
+    }
     if (lock.locked) return;
     // Wake exactly when the idle deadline falls due, not on a fixed interval.
     handle = timer.set(() => {
@@ -54,6 +57,10 @@ export function attach(lock: SessionLock, options: AttachOptions): () => void {
       schedule();
     }, Math.max(250, lock.msUntilIdleLock));
   };
+
+  // Without this, a session unlocked between app state changes had no timer
+  // until the next one, so a user who never left the app did not idle out.
+  const unsubscribe = lock.subscribe(() => schedule());
 
   const subscription = options.appState.addEventListener("change", (state) => {
     const snapshot = state === "active" ? lock.foreground() : lock.background();
@@ -64,7 +71,11 @@ export function attach(lock: SessionLock, options: AttachOptions): () => void {
   schedule();
 
   return () => {
+    unsubscribe();
     subscription.remove();
-    if (handle !== null) timer.clear(handle);
+    if (handle !== null) {
+      timer.clear(handle);
+      handle = null;
+    }
   };
 }

@@ -100,6 +100,7 @@ export class SessionLock {
   #lastActivityAt: number;
   #leftForegroundAt: number | null = null;
   #reason: LockReason | null = null;
+  #listeners = new Set<(snapshot: Snapshot) => void>();
   #options: Required<Options>;
 
   constructor(options: Options) {
@@ -140,6 +141,18 @@ export class SessionLock {
     if (this.#state === "locked") return 0;
     const elapsed = this.#options.now().getTime() - this.#lastActivityAt;
     return Math.max(0, this.#options.idleAfterMs - elapsed);
+  }
+
+  /**
+   * Be told when the lock opens or closes, and get back a function that stops
+   * it. The listener runs only on a real change, so unlock() on a session that
+   * is already open is silent.
+   */
+  subscribe(listener: (snapshot: Snapshot) => void): () => void {
+    this.#listeners.add(listener);
+    return () => {
+      this.#listeners.delete(listener);
+    };
   }
 
   /**
@@ -200,11 +213,13 @@ export class SessionLock {
 
   /** The user authenticated. The idle clock starts again from now. */
   unlock(): Snapshot {
+    const state = this.#state;
+    const reason = this.#reason;
     this.#state = "unlocked";
     this.#reason = null;
     this.#leftForegroundAt = null;
     this.#lastActivityAt = this.#options.now().getTime();
-    return this.snapshot;
+    return this.#announce(state, reason);
   }
 
   /**
@@ -215,10 +230,12 @@ export class SessionLock {
    * would mean force-quitting the app is a way around the lock.
    */
   restore(snapshot: Snapshot): Snapshot {
+    const state = this.#state;
+    const reason = this.#reason;
+
     if (!readable(snapshot) || snapshot.state === "locked" || !snapshot.lastActivityAt) {
-      this.#state = "locked";
-      this.#reason = storedReason(snapshot.reason);
-      return this.snapshot;
+      this.#close(storedReason(snapshot.reason));
+      return this.#announce(state, reason);
     }
     this.#lastActivityAt = new Date(snapshot.lastActivityAt).getTime();
     this.#state = "unlocked";
@@ -230,15 +247,30 @@ export class SessionLock {
     // not that — routing through it made force-quitting the app a way around
     // the lock, which is the hole this method exists to close.
     const away = this.#options.now().getTime() - this.#lastActivityAt;
-    if (away >= this.#options.backgroundAfterMs) return this.#lock("backgrounded");
-    if (away >= this.#options.idleAfterMs) return this.#lock("idle");
-    return this.snapshot;
+    if (away >= this.#options.backgroundAfterMs) this.#close("backgrounded");
+    else if (away >= this.#options.idleAfterMs) this.#close("idle");
+    return this.#announce(state, reason);
   }
 
-  #lock(reason: LockReason): Snapshot {
+  #close(reason: LockReason): void {
     this.#state = "locked";
     this.#reason = reason;
     this.#leftForegroundAt = null;
-    return this.snapshot;
+  }
+
+  #lock(reason: LockReason): Snapshot {
+    const state = this.#state;
+    const previous = this.#reason;
+    this.#close(reason);
+    return this.#announce(state, previous);
+  }
+
+  // Every path that closes the lock goes through #close, so announcing here
+  // covers methods added later as well as the ones that exist today.
+  #announce(state: LockState, reason: LockReason | null): Snapshot {
+    const snapshot = this.snapshot;
+    if (state === this.#state && reason === this.#reason) return snapshot;
+    for (const listener of this.#listeners) listener(snapshot);
+    return snapshot;
   }
 }

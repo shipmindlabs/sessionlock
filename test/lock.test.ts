@@ -182,6 +182,27 @@ test("unlocking restarts the idle clock", () => {
   assert.equal(lock.check().state, "unlocked");
 });
 
+test("a subscriber hears real changes, and nothing else", () => {
+  const time = clock();
+  const lock = lockWith(time);
+  const seen: Snapshot[] = [];
+  const unsubscribe = lock.subscribe((snapshot) => seen.push(snapshot));
+
+  lock.lock();
+  lock.lock();
+  assert.equal(seen.length, 1, "locking an already locked session changes nothing");
+  assert.equal(seen[0]?.reason, "manual");
+
+  lock.unlock();
+  lock.unlock();
+  assert.equal(seen.length, 2, "nor does unlocking an open one");
+  assert.equal(seen.at(-1)?.state, "unlocked");
+
+  unsubscribe();
+  lock.lock();
+  assert.equal(seen.length, 2);
+});
+
 // Force-quitting the app must not be a way around the lock.
 test("a cold start judges the stored session by its age", () => {
   const time = clock();
@@ -330,6 +351,65 @@ test("the poll locks a session that idles with the app open", () => {
 
   assert.equal(seen.at(-1)?.state, "locked");
   assert.equal(seen.at(-1)?.reason, "idle");
+});
+
+// Once the poll locked the session it stopped, and nothing restarted it until
+// the next app state change — so a user who never left the app, unlocked, and
+// kept it open did not idle out a second time.
+test("unlocking restarts the poll without an app state change", () => {
+  const time = clock();
+  const lock = lockWith(time);
+  const seen: Snapshot[] = [];
+
+  let scheduled: (() => void) | null = null;
+  const timer: Timer = {
+    set(callback) {
+      scheduled = callback;
+      return 1;
+    },
+    clear() {
+      scheduled = null;
+    },
+  };
+  const appState: AppStateLike = { addEventListener: () => ({ remove() {} }) };
+
+  attach(lock, { appState, onChange: (s) => seen.push(s), timer });
+  time.advance(6 * MINUTE);
+  scheduled!();
+  assert.equal(seen.at(-1)?.reason, "idle");
+  assert.equal(scheduled, null, "a locked session is not polled");
+
+  lock.unlock();
+  assert.notEqual(scheduled, null, "unlocking sets the timer again");
+
+  time.advance(6 * MINUTE);
+  scheduled!();
+  assert.equal(seen.at(-1)?.state, "locked");
+  assert.equal(seen.at(-1)?.reason, "idle");
+});
+
+test("after detaching, unlocking sets no timer", () => {
+  const time = clock();
+  const lock = lockWith(time);
+
+  let scheduled: (() => void) | null = null;
+  const timer: Timer = {
+    set(callback) {
+      scheduled = callback;
+      return 1;
+    },
+    clear() {
+      scheduled = null;
+    },
+  };
+  const appState: AppStateLike = { addEventListener: () => ({ remove() {} }) };
+
+  const detach = attach(lock, { appState, onChange: () => {}, timer });
+  lock.lock();
+  detach();
+
+  lock.unlock();
+  assert.equal(scheduled, null, "a detached lock must not keep waking a timer");
 });
 
 // The grace period is for a trip through a biometric sheet, not for a cold
