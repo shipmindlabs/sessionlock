@@ -124,6 +124,34 @@ test("returning after a short absence still locks if the session went idle", () 
   assert.equal(snapshot.reason, "idle");
 });
 
+// An "active" event with no departure behind it — a stray one, or the first
+// after the process was launched in the background — once counted as a 0 ms
+// trip through a biometric sheet. That refreshed activity, so it reopened a
+// session that had been idle for an hour.
+test("an active event with no recorded departure is judged on idle time", () => {
+  const time = clock();
+  const lock = lockWith(time);
+
+  time.advance(60 * MINUTE);
+  const snapshot = lock.foreground();
+
+  assert.equal(snapshot.state, "locked");
+  assert.equal(snapshot.reason, "idle");
+});
+
+test("an active event with no recorded departure does not refresh activity", () => {
+  const time = clock();
+  const lock = lockWith(time);
+  const before = lock.snapshot.lastActivityAt;
+
+  time.advance(2 * MINUTE);
+  const snapshot = lock.foreground();
+
+  assert.equal(snapshot.state, "unlocked");
+  assert.equal(snapshot.lastActivityAt, before, "nothing happened, so the idle clock runs on");
+  assert.equal(lock.msUntilIdleLock, 3 * MINUTE);
+});
+
 // Number("5m") is NaN, every comparison against NaN is false, and a lock
 // configured that way was still unlocked after ten hours.
 test("a timeout that is not a non-negative number is refused", () => {

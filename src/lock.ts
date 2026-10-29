@@ -192,8 +192,20 @@ export class SessionLock {
     if (this.#state === "locked") return this.snapshot;
 
     const now = this.#options.now().getTime();
-    const away = this.#leftForegroundAt === null ? 0 : now - this.#leftForegroundAt;
+    const leftAt = this.#leftForegroundAt;
     this.#leftForegroundAt = null;
+
+    // No departure behind this return, so there is nothing to forgive and
+    // nothing to measure: a stray "active" event, or the first one after the
+    // process was launched in the background. Treating it as an absence of
+    // zero made it a trip through a biometric sheet, which refreshed activity
+    // and reopened a session that had been idle for an hour.
+    if (leftAt === null) {
+      if (now - this.#lastActivityAt >= this.#options.idleAfterMs) return this.#lock("idle");
+      return this.snapshot;
+    }
+
+    const away = now - leftAt;
 
     // A trip through a biometric or permission sheet backgrounds the app for a
     // moment. Counting that as leaving locks the user out of their own unlock.
