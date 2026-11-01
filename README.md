@@ -39,7 +39,9 @@ soon as the app is left.
 
 **Face ID backgrounds your app.** So does a permission dialog and a share sheet.
 Counting that as leaving locks the user out of their own unlock and traps them
-in a loop, so a short grace period covers the round trip.
+in a loop, so a short grace period covers the round trip. It covers a session
+that was still live on the way out: one already past its idle deadline locks as
+the app is left, so the trip cannot reopen it.
 
 **Force-quitting must not be a way around the lock.** `restore` judges a stored
 session by the age of its last activity, not by the fact that the process is

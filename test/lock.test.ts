@@ -81,6 +81,36 @@ test("a trip through a system prompt does not count as leaving", () => {
   assert.equal(lock.check().state, "unlocked");
 });
 
+// The poll is an optimisation, so leaving can be the first moment anyone asks
+// whether the session is still live. Recording a departure for one already past
+// its idle deadline handed it the grace period on return: a 0.8 s trip through
+// a biometric sheet refreshed activity and reopened it.
+test("leaving a session that has already idled out locks it on the way out", () => {
+  const time = clock();
+  const lock = lockWith(time, { graceMs: 2000 });
+
+  time.advance(6 * MINUTE);
+  const leaving = lock.background();
+  assert.equal(leaving.state, "locked");
+  assert.equal(leaving.reason, "idle");
+
+  time.advance(800);
+  const back = lock.foreground();
+  assert.equal(back.state, "locked");
+  assert.equal(back.reason, "idle", "the grace period cannot reopen it");
+});
+
+test("leaving a session that is still live keeps the grace period", () => {
+  const time = clock();
+  const lock = lockWith(time, { graceMs: 2000 });
+
+  time.advance(4 * MINUTE);
+  assert.equal(lock.background().state, "unlocked");
+
+  time.advance(800);
+  assert.equal(lock.foreground().state, "unlocked");
+});
+
 test("the background timeout can be shorter than the idle one", () => {
   const time = clock();
   const lock = lockWith(time, { idleAfterMs: 30 * MINUTE, backgroundAfterMs: MINUTE });
@@ -229,6 +259,20 @@ test("a subscriber hears real changes, and nothing else", () => {
   unsubscribe();
   lock.lock();
   assert.equal(seen.length, 2);
+});
+
+test("a subscriber hears the lock that leaving an idled session closes", () => {
+  const time = clock();
+  const lock = lockWith(time);
+  const seen: Snapshot[] = [];
+  lock.subscribe((snapshot) => seen.push(snapshot));
+
+  time.advance(6 * MINUTE);
+  lock.background();
+
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0]?.state, "locked");
+  assert.equal(seen[0]?.reason, "idle");
 });
 
 // Force-quitting the app must not be a way around the lock.

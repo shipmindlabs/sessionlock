@@ -177,10 +177,20 @@ export class SessionLock {
     return this.snapshot;
   }
 
-  /** The app went to the background. Only the time is recorded. */
+  /**
+   * The app went to the background.
+   *
+   * A session already past its idle deadline closes here instead of being
+   * carried into the absence: the poll is only an optimisation, so leaving can
+   * be the first moment anyone asks. Recording a departure for it meant a 0.8 s
+   * trip through a biometric sheet took the grace period on return, refreshed
+   * activity, and reopened a session that had been idle for an hour.
+   */
   background(): Snapshot {
     if (this.#state === "locked") return this.snapshot;
-    this.#leftForegroundAt = this.#options.now().getTime();
+    const now = this.#options.now().getTime();
+    if (now - this.#lastActivityAt >= this.#options.idleAfterMs) return this.#lock("idle");
+    this.#leftForegroundAt = now;
     return this.snapshot;
   }
 
