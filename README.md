@@ -35,7 +35,9 @@ app force-quit, reopened an hour later
 **The background timeout is not the idle timeout.** An app sitting in the app
 switcher is more exposed than one in its owner's hand, so `backgroundAfterMs` is
 usually shorter, and it is a separate setting. `backgroundAfterMs: 0` locks as
-soon as the app is left.
+soon as the app is left. iOS announces leaving twice — `inactive` when the app
+switcher opens, `background` only when the user moves on — and the first of them
+is the departure, so the time the app spends visible in the switcher counts.
 
 **Face ID backgrounds your app.** So does a permission dialog and a share sheet.
 Counting that as leaving locks the user out of their own unlock and traps them

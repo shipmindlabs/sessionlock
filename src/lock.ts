@@ -190,7 +190,11 @@ export class SessionLock {
     if (this.#state === "locked") return this.snapshot;
     const now = this.#options.now().getTime();
     if (now - this.#lastActivityAt >= this.#options.idleAfterMs) return this.#lock("idle");
-    this.#leftForegroundAt = now;
+    // Leaving is announced more than once: iOS reports "inactive" when the app
+    // switcher opens, with the app's content visible in it, and "background"
+    // only when the user moves on. Both arrive here, so the later call must not
+    // move the departure — that dropped the time spent in the switcher.
+    if (this.#leftForegroundAt === null) this.#leftForegroundAt = now;
     return this.snapshot;
   }
 

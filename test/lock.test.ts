@@ -123,6 +123,24 @@ test("the background timeout can be shorter than the idle one", () => {
   assert.equal(snapshot.reason, "backgrounded", "the app switcher is more exposed than the owner's hand");
 });
 
+// iOS reports "inactive" when the app switcher opens, with the app's content
+// visible in it, and "background" only when the user moves on. Both arrive as
+// background(), so letting the second one move the departure meant the time
+// the app sat in the switcher did not count.
+test("a second departure before returning keeps the first one", () => {
+  const time = clock();
+  const lock = lockWith(time, { idleAfterMs: 30 * MINUTE, backgroundAfterMs: MINUTE });
+
+  lock.background();
+  time.advance(50_000);
+  lock.background();
+  time.advance(20_000);
+  const snapshot = lock.foreground();
+
+  assert.equal(snapshot.state, "locked");
+  assert.equal(snapshot.reason, "backgrounded");
+});
+
 // The usual setup for locking as soon as the app is left: the grace period is
 // still what tells a Face ID sheet apart from walking away.
 test("a zero background timeout locks on leaving, but not on a Face ID trip", () => {
@@ -400,6 +418,35 @@ test("attach follows the app's lifecycle", () => {
   detach();
   assert.equal(removed, true, "the listener must be removed on unmount");
   assert.equal(scheduled, null, "and the timer cancelled");
+});
+
+// attach maps every non-active state to background(), and iOS sends two of
+// them when the app switcher opens: the time spent visible in the switcher has
+// to count towards the background timeout.
+test("attach measures the absence from the first departure event", () => {
+  const time = clock();
+  const lock = lockWith(time, { idleAfterMs: 30 * MINUTE, backgroundAfterMs: MINUTE });
+  const seen: Snapshot[] = [];
+
+  let listener: ((state: string) => void) | null = null;
+  const appState: AppStateLike = {
+    addEventListener(_type, callback) {
+      listener = callback;
+      return { remove() {} };
+    },
+  };
+  const timer: Timer = { set: () => 1, clear() {} };
+
+  attach(lock, { appState, onChange: (s) => seen.push(s), timer });
+
+  listener!("inactive");
+  time.advance(50_000);
+  listener!("background");
+  time.advance(20_000);
+  listener!("active");
+
+  assert.equal(seen.at(-1)?.state, "locked");
+  assert.equal(seen.at(-1)?.reason, "backgrounded");
 });
 
 test("the poll locks a session that idles with the app open", () => {
