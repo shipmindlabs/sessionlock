@@ -72,7 +72,9 @@ option, rather than producing a lock that never closes.
 
 `attach` also polls while the app is open, so the lock appears promptly for
 someone looking at the screen. That poll is an optimisation, not the mechanism —
-which is the distinction the whole library rests on.
+which is the distinction the whole library rests on. It wakes when the idle
+deadline falls due, which means `idleAfterMs: Infinity` — a lock that applies
+only on leaving — sets no timer at all.
 
 `lock.subscribe(listener)` reports every real change — a lock closing, or an
 unlock of a session that was closed, but not an `unlock()` on one already open —

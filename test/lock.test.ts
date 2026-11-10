@@ -472,6 +472,37 @@ test("the poll locks a session that idles with the app open", () => {
   assert.equal(seen.at(-1)?.reason, "idle");
 });
 
+// setTimeout stores its delay in 32 bits, so anything past 2^31-1 ms fires
+// almost at once. idleAfterMs: Infinity — a lock that only applies on leaving —
+// therefore armed a 1 ms timer that re-armed forever and reported every tick.
+test("the poll skips an endless idle limit and caps a long one", () => {
+  const time = clock();
+  const delays: number[] = [];
+  const timer: Timer = {
+    set(_callback, ms) {
+      delays.push(ms);
+      return 1;
+    },
+    clear() {},
+  };
+  const appState: AppStateLike = { addEventListener: () => ({ remove() {} }) };
+
+  const endless = lockWith(time, {
+    idleAfterMs: Number.POSITIVE_INFINITY,
+    backgroundAfterMs: MINUTE,
+  });
+  attach(endless, { appState, onChange: () => {}, timer });
+  assert.deepEqual(delays, [], "no idle deadline to wake for, so no timer");
+
+  const long = lockWith(time, { idleAfterMs: 40 * 24 * 60 * MINUTE });
+  attach(long, { appState, onChange: () => {}, timer });
+  assert.deepEqual(delays, [2_147_483_647], "woken early, which only checks and reschedules");
+
+  const usual = lockWith(time, { idleAfterMs: 5 * MINUTE });
+  attach(usual, { appState, onChange: () => {}, timer });
+  assert.deepEqual(delays, [2_147_483_647, 300_000], "an ordinary deadline is unchanged");
+});
+
 // Once the poll locked the session it stopped, and nothing restarted it until
 // the next app state change — so a user who never left the app, unlocked, and
 // kept it open did not idle out a second time.

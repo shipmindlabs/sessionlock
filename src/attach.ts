@@ -27,6 +27,12 @@ export const systemTimer: Timer = {
   clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 };
 
+/**
+ * The largest delay setTimeout can hold, in Node and in browsers. A larger one
+ * overflows the 32-bit field it is stored in and fires almost at once.
+ */
+const MAX_DELAY_MS = 2_147_483_647;
+
 export type AttachOptions = {
   readonly appState: AppStateLike;
   readonly onChange: (snapshot: Snapshot) => void;
@@ -51,11 +57,18 @@ export function attach(lock: SessionLock, options: AttachOptions): () => void {
       handle = null;
     }
     if (lock.locked) return;
-    // Wake exactly when the idle deadline falls due, not on a fixed interval.
+    const due = lock.msUntilIdleLock;
+    // idleAfterMs: Infinity is a lock that only applies on leaving, so there is
+    // no idle deadline to wake for. Handing that to setTimeout gave a 1 ms
+    // timer that re-armed forever and reported on every tick.
+    if (!Number.isFinite(due)) return;
+    // Wake exactly when the idle deadline falls due, not on a fixed interval. A
+    // deadline beyond what a timer can hold is woken for early, which only
+    // checks and reschedules.
     handle = timer.set(() => {
       options.onChange(lock.check());
       schedule();
-    }, Math.max(250, lock.msUntilIdleLock));
+    }, Math.min(MAX_DELAY_MS, Math.max(250, due)));
   };
 
   // Without this, a session unlocked between app state changes had no timer
