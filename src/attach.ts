@@ -11,6 +11,12 @@ import { SessionLock, type Snapshot } from "./lock.ts";
 
 /** The part of React Native's AppState this needs. */
 export type AppStateLike = {
+  /**
+   * The state the app is in right now, which React Native already exposes. A
+   * process started by a silent push or a background fetch is launched into
+   * the background, and no "change" event announces a departure it began in.
+   */
+  readonly currentState?: string;
   addEventListener(
     type: "change",
     listener: (state: string) => void,
@@ -70,6 +76,14 @@ export function attach(lock: SessionLock, options: AttachOptions): () => void {
       schedule();
     }, Math.min(MAX_DELAY_MS, Math.max(250, due)));
   };
+
+  // A process launched into the background is already away, and the departure
+  // it started in is never announced as a change. Without one recorded here,
+  // opening the app ten minutes later had nothing to measure, so the
+  // background timeout was not applied. "active", "unknown", "extension" and
+  // an AppState that does not report its state leave this alone.
+  const initial = options.appState.currentState;
+  if (initial === "background" || initial === "inactive") lock.background();
 
   // Without this, a session unlocked between app state changes had no timer
   // until the next one, so a user who never left the app did not idle out.

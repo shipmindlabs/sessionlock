@@ -449,6 +449,66 @@ test("attach measures the absence from the first departure event", () => {
   assert.equal(seen.at(-1)?.reason, "backgrounded");
 });
 
+// A process started by a silent push or a background fetch is launched into
+// the background, and the departure it began in is never announced as a change
+// event. With nothing recorded, opening the app ten minutes later had no
+// absence to measure and the background timeout was never applied.
+test("attach records the departure of an app launched into the background", () => {
+  const time = clock();
+  const lock = lockWith(time, { idleAfterMs: 30 * MINUTE, backgroundAfterMs: MINUTE });
+  const seen: Snapshot[] = [];
+
+  let listener: ((state: string) => void) | null = null;
+  const appState: AppStateLike = {
+    currentState: "background",
+    addEventListener(_type, callback) {
+      listener = callback;
+      return { remove() {} };
+    },
+  };
+  const timer: Timer = { set: () => 1, clear() {} };
+
+  attach(lock, { appState, onChange: (s) => seen.push(s), timer });
+
+  time.advance(10 * MINUTE);
+  listener!("active");
+
+  assert.equal(seen.at(-1)?.state, "locked");
+  assert.equal(seen.at(-1)?.reason, "backgrounded");
+});
+
+// A cold start wires the lock up and reads its stored snapshot, in whichever
+// order the app happens to do it. Clearing the departure in restore() made
+// attach-then-restore lose the absence that attach-then-restore's mirror kept.
+test("restoring after attach keeps the departure attach recorded", () => {
+  const time = clock();
+  const lock = lockWith(time, { idleAfterMs: 30 * MINUTE, backgroundAfterMs: MINUTE });
+  const seen: Snapshot[] = [];
+
+  let listener: ((state: string) => void) | null = null;
+  const appState: AppStateLike = {
+    currentState: "background",
+    addEventListener(_type, callback) {
+      listener = callback;
+      return { remove() {} };
+    },
+  };
+  const timer: Timer = { set: () => 1, clear() {} };
+
+  attach(lock, { appState, onChange: (s) => seen.push(s), timer });
+  lock.restore({
+    state: "unlocked",
+    lastActivityAt: new Date(time.now().getTime() - 10_000).toISOString(),
+    reason: null,
+  });
+
+  time.advance(10 * MINUTE);
+  listener!("active");
+
+  assert.equal(seen.at(-1)?.state, "locked");
+  assert.equal(seen.at(-1)?.reason, "backgrounded");
+});
+
 test("the poll locks a session that idles with the app open", () => {
   const time = clock();
   const lock = lockWith(time);

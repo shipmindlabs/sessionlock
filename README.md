@@ -70,6 +70,13 @@ The timeouts are checked when the lock is built: a duration that is not a
 non-negative number — `Number("5m")` is `NaN` — throws a `RangeError` naming the
 option, rather than producing a lock that never closes.
 
+`attach` also reads `appState.currentState`. A process launched into the
+background — by a silent push or a background fetch — is never sent a change
+event for the departure it began in, so `attach` records one, and the background
+timeout applies when the user finally opens the app. Restoring a stored session
+keeps that departure, so `attach` then `restore` and `restore` then `attach`
+reach the same place.
+
 `attach` also polls while the app is open, so the lock appears promptly for
 someone looking at the screen. That poll is an optimisation, not the mechanism —
 which is the distinction the whole library rests on. It wakes when the idle

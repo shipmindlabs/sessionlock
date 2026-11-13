@@ -266,7 +266,9 @@ export class SessionLock {
     this.#lastActivityAt = new Date(snapshot.lastActivityAt).getTime();
     this.#state = "unlocked";
     this.#reason = null;
-    this.#leftForegroundAt = null;
+    // A departure recorded before this call is kept. attach() stamps one for a
+    // process launched into the background, and clearing it here made the
+    // order of the two calls decide whether the absence was ever measured.
 
     // Judged directly rather than through foreground(). That path grants a
     // grace period for a trip through a biometric sheet, and a cold start is
