@@ -89,6 +89,24 @@ and returns a function that stops it. `attach` uses it so that unlocking
 restarts the poll straight away, instead of leaving the session unpolled until
 the app next changes state.
 
+## The clock
+
+`now` defaults to `() => new Date()`, the wall clock, because that is the clock
+which keeps counting while the device sleeps and the app is suspended — which is
+exactly the interval this library has to measure. A replacement `now` has to do
+the same: one that stops along with the process cannot measure an absence the
+process did not see. Whether some other source has that property on the
+platforms you ship to is a thing to check rather than assume.
+
+The wall clock can also be set, and that is the price of using it. Moving it
+back while the app is away makes the absence negative, and a negative number is
+under every limit, so the return would read as a brief trip through a biometric
+sheet; a stored snapshot stamped later than now has the same problem. Both lock,
+with the reason `backgrounded` — an absence that cannot be measured is not
+evidence that the session is still live. A clock moved forward can only make an
+absence look longer, so it can lock early but never late. Skew smaller than
+`graceMs` is ignored, like any other short absence.
+
 ## No React Native import
 
 `AppState` arrives as an argument typed by its shape, and so does the clock and
@@ -112,7 +130,7 @@ switcher is a separate, platform-specific job.
 
 | | |
 |---|---|
-| Implemented | idle and background timeouts, grace period for system prompts, manual lock, restore across cold starts, countdown, change subscription, lifecycle wiring with cleanup |
+| Implemented | idle and background timeouts, grace period for system prompts, manual lock, restore across cold starts, clock skew, countdown, change subscription, lifecycle wiring with cleanup |
 | Not yet | a React hook wrapper, persistence helpers, a warning callback shortly before locking, per-screen sensitivity |
 
 ## Development

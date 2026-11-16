@@ -81,6 +81,32 @@ test("a trip through a system prompt does not count as leaving", () => {
   assert.equal(lock.check().state, "unlocked");
 });
 
+// The wall clock can be set, and a clock moved back while the app is away
+// makes the absence negative — under every limit. Two hours in the background
+// came back as a trip through a biometric sheet and the session stayed open.
+test("a clock set back while away locks instead of reading as a short trip", () => {
+  const time = clock();
+  const lock = lockWith(time, { graceMs: 2000 });
+
+  lock.background();
+  time.advance(-2 * 60 * MINUTE);
+  const snapshot = lock.foreground();
+
+  assert.equal(snapshot.state, "locked");
+  assert.equal(snapshot.reason, "backgrounded");
+});
+
+// Clocks are corrected by small amounts all the time, and a correction is not
+// a reason to lock someone out.
+test("a small backwards skew is still a short trip", () => {
+  const time = clock();
+  const lock = lockWith(time, { graceMs: 2000 });
+
+  lock.background();
+  time.advance(-200);
+  assert.equal(lock.foreground().state, "unlocked");
+});
+
 // The poll is an optimisation, so leaving can be the first moment anyone asks
 // whether the session is still live. Recording a departure for one already past
 // its idle deadline handed it the grace period on return: a 0.8 s trip through
@@ -309,6 +335,24 @@ test("a cold start judges the stored session by its age", () => {
     reason: null,
   };
   assert.equal(lockWith(time).restore(recent).state, "unlocked");
+});
+
+// A stamp later than now cannot be aged: it is either a clock that was set
+// back since the write, or a value edited by hand. One a day ahead restored
+// unlocked and reported a countdown of about twenty-four hours.
+test("a stored session stamped in the future restores locked", () => {
+  const time = clock();
+  const lock = lockWith(time);
+  const ahead: Snapshot = {
+    state: "unlocked",
+    lastActivityAt: new Date(time.now().getTime() + 24 * 60 * MINUTE).toISOString(),
+    reason: null,
+  };
+
+  const restored = lock.restore(ahead);
+  assert.equal(restored.state, "locked");
+  assert.equal(restored.reason, "backgrounded");
+  assert.equal(lock.msUntilIdleLock, 0, "no countdown a day long");
 });
 
 test("a stored locked session stays locked", () => {

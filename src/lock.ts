@@ -53,9 +53,13 @@ export type Options = {
    * A short grace period so that returning from a system prompt — a biometric
    * sheet, a permission dialog, a share sheet — does not count as leaving the
    * app. Without it, Face ID itself backgrounds the app and locks it, and the
-   * user is stuck in a loop.
+   * user is stuck in a loop. It is also how much clock skew is forgiven.
    */
   readonly graceMs?: number;
+  /**
+   * The clock. Defaults to the wall clock, which keeps counting while the
+   * device sleeps and the app is suspended; a replacement has to do the same.
+   */
   readonly now?: () => Date;
 };
 
@@ -221,6 +225,14 @@ export class SessionLock {
 
     const away = now - leftAt;
 
+    // Setting the clock back while the app is away makes the absence negative,
+    // and a negative number is under every limit: an hour in the background
+    // came back as a trip through a biometric sheet, refreshed activity, and
+    // left the session open. An absence that cannot be measured is no evidence
+    // the session is still live. Skew inside the grace period falls through to
+    // the branch below, which treats it as an absence of zero.
+    if (away < -this.#options.graceMs) return this.#lock("backgrounded");
+
     // A trip through a biometric or permission sheet backgrounds the app for a
     // moment. Counting that as leaving locks the user out of their own unlock.
     if (away <= this.#options.graceMs) {
@@ -275,7 +287,11 @@ export class SessionLock {
     // not that — routing through it made force-quitting the app a way around
     // the lock, which is the hole this method exists to close.
     const away = this.#options.now().getTime() - this.#lastActivityAt;
-    if (away >= this.#options.backgroundAfterMs) this.#close("backgrounded");
+    // A snapshot stamped later than now — written before the clock was set
+    // back, or by hand — has a negative age, which is under every limit. It
+    // restored unlocked with a countdown as long as the stamp was wrong.
+    if (away < -this.#options.graceMs) this.#close("backgrounded");
+    else if (away >= this.#options.backgroundAfterMs) this.#close("backgrounded");
     else if (away >= this.#options.idleAfterMs) this.#close("idle");
     return this.#announce(state, reason);
   }
