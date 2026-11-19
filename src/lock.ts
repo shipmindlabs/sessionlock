@@ -160,11 +160,16 @@ export class SessionLock {
   }
 
   /**
-   * The user did something. Ignored while locked: a tap on the passcode screen
-   * is not a reason to consider the session live.
+   * The user did something. Ignored while locked, where a tap on the passcode
+   * screen is not a reason to consider the session live, and ignored while a
+   * departure is recorded: a headless task, a push handler or a network
+   * callback runs with nobody in front of the screen, so it is not the user.
+   * Letting it move activity meant a session that left 29 minutes into a
+   * 30-minute idle limit came back unlocked four minutes later, because the
+   * absence itself was inside the background limit.
    */
   touch(): this {
-    if (this.#state === "locked") return this;
+    if (this.#state === "locked" || this.#leftForegroundAt !== null) return this;
     this.#lastActivityAt = this.#options.now().getTime();
     return this;
   }

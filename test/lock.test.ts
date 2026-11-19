@@ -271,6 +271,39 @@ test("activity while locked is ignored", () => {
   assert.equal(lock.snapshot.reason, "manual");
 });
 
+// A headless task, a push handler or a network callback can call touch() with
+// nobody in front of the screen. That once moved activity, so a session which
+// left 29 minutes into a 30-minute idle limit came back unlocked four minutes
+// later — the absence itself was inside the 5-minute background limit.
+test("activity while the app is away is ignored", () => {
+  const time = clock();
+  const lock = lockWith(time, { idleAfterMs: 30 * MINUTE, backgroundAfterMs: 5 * MINUTE });
+
+  time.advance(29 * MINUTE);
+  lock.background();
+  time.advance(2 * MINUTE);
+  lock.touch();
+  time.advance(2 * MINUTE);
+  const snapshot = lock.foreground();
+
+  assert.equal(snapshot.state, "locked");
+  assert.equal(snapshot.reason, "idle");
+});
+
+test("activity after returning restarts the idle clock", () => {
+  const time = clock();
+  const lock = lockWith(time, { idleAfterMs: 30 * MINUTE, backgroundAfterMs: 5 * MINUTE });
+
+  time.advance(MINUTE);
+  lock.background();
+  time.advance(2 * MINUTE);
+  assert.equal(lock.foreground().state, "unlocked");
+
+  lock.touch();
+  time.advance(29 * MINUTE);
+  assert.equal(lock.check().state, "unlocked", "the touch after returning counted");
+});
+
 test("unlocking restarts the idle clock", () => {
   const time = clock();
   const lock = lockWith(time);
